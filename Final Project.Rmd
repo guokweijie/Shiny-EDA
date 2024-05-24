@@ -1,0 +1,313 @@
+---
+title: "Final Project"
+author: "Guok Wei Jie"
+date: "2024-05-05"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(shiny)
+library(ggplot2)
+library(maps)
+library(dplyr)
+library(sf)
+library(viridis)
+library(pheatmap)
+library(tigris)
+library(scales)
+library(haven)
+library(plotly)
+```
+
+# Project Task
+
+This project explores the impact of past socioeconomic factors on the 2016 US election results across different regions. Socioeconomic factors include public health issues, education levels of the people, demographic factors, etc. These factors indicate the characteristics of the people, as well as how nation-wide issues are managed by the ruling government. Therefore, this can affect voter behavior and political affiliations significantly, shaping the election results. I am focusing on past socioeconomic factors to see if there have been a build up of the effects of different factors in affecting the 2016 election results. I will be making use of `gss_lon`, `county_data`, `elections_historic` and `opiates` in `socviz` to do my analysis.
+
+## Winner's Share of Electoral College Votes (1856-2016)
+
+Before we dive into the past socioeconomic factors, let's take a closer look at how the winning party has performed historically from 1856 to 2016 to get a better idea of the track record of each winning party. I filtered out the years from 1856 to 2016 as 1856 was the first election that the Republicans party took part in.
+
+```{r}
+
+elections <- filter(elections_historic, year >= 1856)
+
+ggplot(elections, aes(x = year, y = ec_pct, fill = win_party)) +
+  geom_col(position = "stack", alpha = 0.8) +
+  labs(title = "Winner's Share of Electoral College Vote from 1856-2016",
+       x = "Year",
+       y = "Vote Share", fill = "Winning party") +
+   scale_fill_manual(values = c("Dem." = "#3182bd", "Rep." = "#de2d26")) +
+  theme_minimal()
+```
+
+From the figure, we can observe that before 1950, the Republicans won consecutive elections 3 times while the Democrats won consecutive elections once. In the 20th century, nearly half of the elections won were due to a winner's vote share of more than 75%, which represents an astounding victory. From the 1990s onwards, the winner's vote share became more contested, ranging around 50% to 65%. We also note that during this period, the winning parties are flipped once every around 2 elections. What about the popular votes? Is there a difference between the electoral college votes and popular votes throughout this period of time?
+
+## Electoral College Votes vs Popular Votes
+
+Electoral college votes are cast by electors of each state, while popular votes are cast by individual voters in the population. By analysing the relationship between these 2 factors, we can better understand how well-represented the views and needs of the people are by the electoral college.
+
+```{r}
+
+ui <- fluidPage(
+  titlePanel("Exploring relationship between Electoral College vote and Popular vote"),
+  plotlyOutput("plot")
+)
+
+server <- function(input, output) {
+  
+  # Create the plot
+  output$plot <- renderPlotly({
+    p <- ggplot(elections, aes(x = year)) +
+      geom_line(aes(y = ec_pct, linetype = "Electoral College Vote")) +
+      geom_line(aes(y = popular_pct, linetype = "Popular Vote")) +
+      geom_point(aes(y = ec_pct, text = paste("winner:", winner, "<br>party:", win_party, "<br>year:", year)), size = 1, show.legend = FALSE) +
+      geom_point(aes(y = popular_pct, text = paste("winner:", winner, "<br>party:", win_party, "<br>year:", year)), size = 1, show.legend = FALSE) +
+      geom_hline(yintercept = 0.5, linetype = "dotted", color = "red") + 
+      labs(title = "Winner's Share of Electoral College Vote vs Popular Vote from 1856-2016",
+           x = "Year",
+           y = "Vote Share", linetype = "Vote Type") +
+      theme_minimal() +
+      scale_linetype_manual(values = c("Electoral College Vote" = "solid", "Popular Vote" = "dashed"))
+    
+    ggplotly(p, tooltip = c("text", "y"))
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+```
+
+From the figure, we can observe that the winner's share of popular vote is consistently lower than the electoral college vote from 1856 to 2016. I have used 50% as a benchmark to assess these 2 percentages. It is worth to note elections with a large difference in electoral college and popular votes when the popular vote shares are below 50%. For example, in the 1912 election won by Democrat Woodrow Wilson, the difference is about 40%. In 1992, Bill Clinton won the election with a difference of about 26%. These stark differences in electoral college votes and popular votes can indicate that the electoral college generally did not represent the sentiments and needs of the people very well, especially when the popular vote share is below 50%. Now, let's observe the effects of various socioeconomic factors on the 2016 US elections.
+
+## Opioids-related deaths
+
+One key factor to assess the wellness of the country and how the government is managing country-wide issues is health-related factors. We will be comparing the mean opioids-related death rates in different regions over the period from 1999-2014.
+
+```{r}
+library(socviz)
+
+data(gss_lon)
+data(county_data)
+data(elections_historic)
+data(opiates)
+
+opiates <- opiates %>%
+  mutate(state = tolower(state))
+
+opiates <- opiates %>%
+  rename(census_region = region)
+
+us_states <- map_data("state") %>%
+  select(long, lat, group, region)
+
+region_mean <- opiates %>%
+  group_by(census_region) %>%
+  summarise(region_adjusted = mean(adjusted, na.rm = TRUE))
+
+state_mean <- opiates %>%
+  group_by(state, census_region) %>%
+  summarise(states_adjusted = mean(adjusted, na.rm = TRUE))
+
+merged_data <- left_join(us_states, state_mean, by = c("region" = "state"))
+
+merged_data <- left_join(merged_data, region_mean, by = "census_region")
+
+ggplot() +
+  geom_polygon(data = merged_data, aes(x = long, y = lat, group = group, fill = region_adjusted)) +
+  labs(title = "Mean adjusted opioid death rate for 1999-2014 by region", fill = "Mean Adjusted Death Rate") +
+  coord_map() +
+  scale_fill_distiller(palette = "RdBu") +
+  theme_void()
+```
+
+In the above figure, we can see that the West region has the highest mean adjusted death rate over the years (higher than 7%), while the Midwest region has the lowest death rate of below 5%. In the late 1990s, there was a significant increase in opioids prescribed for pain management, and ever since, the nation has treated the opioid issue as a national crisis and took measures to address the issue. Opioid-related deaths is a socioeconomic factor that affects election results as it shows how well the issue is managed in different regions and hence, can affect voter sentiment and affiliations. Let's also look at the distribution of the adjusted death rates across the regions to see if we can find any interesting trends.
+
+## Distribution of Adjusted Opioid Death Rates (1999-2014)
+
+The figure below shows the distribution of the adjusted opioid-related death rates across the regions.
+
+```{r}
+
+data <- filter(opiates, !is.na(census_region) & !is.na(adjusted))
+
+furthest_outliers <- data %>%
+  group_by(census_region) %>%
+  filter(adjusted == max(boxplot.stats(adjusted)$out)) %>%
+  ungroup()
+
+ggplot(data, aes(x = census_region, y = adjusted)) +
+  geom_boxplot() +
+  geom_text(data = furthest_outliers,
+            aes(label = adjusted),
+            nudge_x = 0.3, nudge_y = 0.5,
+            color = "red", size = 3, hjust = 0.5, vjust = 0.5) +
+  labs(x = "Census Region", y = "Adjusted Death Rate", title = "Adjusted Death Rate from 1999-2014 by region") +
+  theme_minimal()
+```
+
+From the figure above, we can see that generally the South region has the largest outliers, even going up to 31.6% in one year. The median adjusted death rates across all regions range from about 5% to 8%. The statistics for Midwest region support our mean adjusted death rate from the previous figure, as it has the lowest median and interquartile range, and its largest outlier is the lowest at 19.1%.
+
+## Past Demographic Factors
+
+Demographic factors can also have a significant impact on the election results. For example, the percentage of black and white people, travel time and household income define who someone is and affects their political inclinations. These factors are mostly measured in 2013 and 2014, leading up to the 2016 elections. This allows us to see the socioeconomic situation nearing the election period.
+
+```{r}
+
+filtered <- na.omit(county_data)
+
+filtered <- select(filtered, c(pop, pop_dens, pct_black, female, white, black, hh_income, travel_time, land_area, per_dem_2016, per_gop_2016, per_dem_2012, per_gop_2012, partywinner12))
+
+filtered$pop_dens <- as.numeric(filtered$pop_dens)
+filtered$pct_black <- as.numeric(filtered$pct_black)
+filtered$partywinner12 <- ifelse(filtered$partywinner12 == "Democrat", 0, 1)
+
+rescaled_features <- mutate_if(filtered, is.numeric, rescale)
+
+rownames(rescaled_features) <- rownames(filtered)
+
+row_ann <- data.frame(partywinner16 = as.character(county_data$partywinner16))
+rownames(row_ann) <- rownames(filtered$partywinner16)
+
+pheatmap(
+  rescaled_features,
+  annotation_row = row_ann,
+  show_rownames = FALSE,
+  clustering_distance_cols = "euclidean",
+  clustering_distance_rows = "euclidean",
+  angle_col = 315,
+  main = "Relationship of Past Demographic Factors with 2016 Winning Party",
+  fontsize = 10
+)
+
+```
+
+From the above figure, we can see that the percent of females has no significant effect on the 2016 election results. We can also clearly see that Republicans won more counties in 2016 than in 2012. In counties with very a high percentage of black people or higher household income, generally Democrat wins. We can also see that the percentage of Presidential Vote in 2012 and 2016 are closely related for both the Democrats and Republicans. Let's observe this relationship even closer.
+
+## Vote Percentage for 2012 vs 2016 Elections
+
+In this figure, we explore the relationship between the 2012 and 2016 presidential vote percentages for both Democrats and Republican parties. This helps us to see how similar they are and can reflect how satisfied people are with the changes within the 4 years.
+
+```{r}
+
+filtered_county <- county_data %>%
+  filter(!is.na(per_dem_2016) & !is.na(per_gop_2012) & !is.na(per_dem_2012) & !is.na(per_gop_2012))
+
+ui <- fluidPage(
+  titlePanel("Exploring Relationship between 2016 and 2012 Elections"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("variable", "Choose a party to plot and observe:",
+                  choices = c("Democrats", "Republican"))
+    ),
+    mainPanel(
+      plotOutput("electionPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+
+  # Create the plot
+  output$electionPlot <- renderPlot({
+    title <- if (input$variable == "Democrats") {
+      "Democratic Presidential Vote Percentage in 2012 vs 2016 by census region"
+    } else {
+      "Republican Presidential Vote Percentage in 2012 vs 2016 by census region"
+    }
+    
+    
+    x_var <- if(input$variable == "Democrats") "per_dem_2012" else "per_gop_2012"
+    y_var <- if(input$variable == "Democrats") "per_dem_2016" else "per_gop_2016"
+    ggplot(filtered_county, aes(x = !!sym(x_var), y = !!sym(y_var))) +
+      geom_point() +
+      facet_wrap(~ census_region) +
+      labs(title = title, x = "2012 Vote Percent", y= "2016 Vote Percent")
+  })
+}
+
+# Run the application 
+shinyApp(ui, server)
+
+```
+
+From the figures, we can see that for all regions, the 2012 and 2016 Democrats vote percentages share a positive relationship with most of the points in the lower percentages below 50%. On the other hand, for Republicans, both variables also share a positive relationship but with most of the points on the higher percentages above 50%. This indicates that Republicans won significantly more counties than Democrats in both 2012 and 2016. This may also indicate that the general political affiliations of the people in each region have remained about the same within these 2 elections.
+
+## Education Factors
+
+Education factor are important as the level of education can have a huge impact on shaping a person's political views and affiliations. Higher levels of education can help a person become more well-informed and more aware of the social issues around them. The level of education of a person's parents can also affect the well-being, income and stability of a family. These can have significant effects on the political affiliations of a family or person. We are going to look at the highest degree of the voters from 1972-2016 themselves, as well as that of their parents, to analyse these education factors.
+
+```{r}
+
+ui <- fluidPage(
+  titlePanel("Exploring Education Factors"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("variable", "Choose a variable to plot:",
+                  choices = c("degree", "padeg", "madeg"))
+    ),
+    mainPanel(
+      plotOutput("electionPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  # Filter and transform the data
+  relabelled_data <- reactive({
+    var <- sym(input$variable)
+    relabelled <- filter(gss_lon, !is.na(pres12) & !is.na(!!var))
+    relabelled$pres12 <- as.factor(relabelled$pres12)
+    relabelled <- relabelled %>%
+      mutate(pres12_label = recode(pres12, `1` = "Obama", `2` = "Romney", `3` = 'Other Candidate', `4` = 'Did not vote', `5` = 'Unknown'))
+    relabelled
+  })
+  
+  # Create the plot
+  output$electionPlot <- renderPlot({
+    title <- if (input$variable == "degree") {
+      "Respondent's Highest Degree vs 2012 Election Votes"
+    } else if (input$variable == "padeg") {
+      "Father's Highest Degree vs 2012 Election Votes"
+    } else {
+      "Mother's Highest Degree vs 2012 Election Votes"
+    }
+    
+    ggplot(relabelled_data(), aes_string(x = input$variable, y = "pres12_label")) +
+      geom_count() +
+      facet_wrap(~ bigregion) +
+      labs(x = tools::toTitleCase(input$variable), y = "Vote", size = 'Respondent Count', title = title) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+  })
+}
+
+# Run the application 
+shinyApp(ui, server)
+```
+
+From the figures above, we can see that most of the voters for Romney and Obama have High School and Bachelor degrees. As for the father's highest degree and mother's highest degree, most of them have Lt High School and High School, which are of lower education levels. We also have to account for the fact that a lesser proportion of voters attend higher educational institutions, and this might have contributed to the largest number of voters from Lt High School and High School. Across the regions, the trends are roughly similar as well.
+
+## General Happiness
+
+As our last factor, we look at general happiness of the voters from 1972 to 2016, and then who they are politically inclined towards. Undoubtedly, this has a direct impact on the election results, as the voters' satisfaction with how the country is doing and how well the government is performing contributes to the general happiness as well.
+
+```{r}
+
+filtered <- gss_lon %>%
+  select(happy, partyid, bigregion) %>%
+  filter(!is.na(happy) & !is.na(partyid) & partyid %in% c('Strong Democrat', 'Strong Republican', 'Independent'))
+
+ggplot(filtered, aes(x = happy, y = partyid)) + 
+  geom_count() +
+  facet_wrap(~ bigregion) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(title = "General Happiness vs Political Party Affiliation by Census Region", x = "General Happiness", y = "Political Affliation", size = "Count")
+```
+
+From the figure, generally voters from all regions are mostly "Very Happy" and "Pretty Happy". The voters who are "Not too happy" and "Strong Republican" are fewer in all regions than that of "Independent" and "Strong Democrat". This could indicate that fewer Republican voters would sway towards another party.
+
+# Conclusion
+
+Past socioeconomic factors have a huge impact on future election results. We looked at factors like education levels, past election results, general happiness and demographic factors. From these factors, we analysed trends in election results and saw that there were historical indicators of a Republican victory in the upcoming 2016 election. For example, the fewer number of Republican voters who were "Not too happy". I admit that some specific effects and relationships can be hard to pinpoint due to the presence of multiple factors working together at the same time. All in all, it is definitely crucial for politicians to study past socioeconomic factors and data to better assess their chances of winning the next elections.
